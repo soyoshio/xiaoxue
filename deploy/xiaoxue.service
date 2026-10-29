@@ -1,0 +1,16 @@
+[Unit]
+Description=xiaoxue resident agent
+After=xvfb.service
+Wants=xvfb.service
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/absolute/path/to/xiaoxue
+ExecStart=/usr/bin/node /absolute/path/to/xiaoxue/agent.ts
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
