@@ -133,7 +133,7 @@ Debian / Ubuntu:
 
 ```sh
 sudo apt update
-sudo apt install -y xvfb xdotool x11-utils
+sudo apt install -y xvfb xdotool x11-utils openbox
 # 可选:中文字体,否则 GUI 里的中文会显示成方块
 sudo apt install -y fonts-noto-cjk
 ```
@@ -141,6 +141,7 @@ sudo apt install -y fonts-noto-cjk
 - `xvfb`:无头 X 服务器
 - `xdotool`:`click` / `type` 的底层命令
 - `x11-utils`:提供 `xdpyinfo`,用于验证显示
+- `openbox`:轻量窗口管理器,由 systemd 随虚拟桌面启动
 
 ### 2. 启动
 
@@ -157,13 +158,14 @@ Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &
 **用 24 位色深**:chromium 等应用在 16 位 visual 上渲染颜色是坏的(帧缓冲里就不是原色);
 截图 16/32 bpp 都支持,但只有 24 位能保证应用侧颜色正确。
 
-后台常驻:
+这里只启动临时测试实例,不需要 `nohup`。完成下面的配置与验证、确认显示正常后,
+停止临时实例:
 
 ```sh
-nohup Xvfb :99 -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
-pgrep -a Xvfb                    # 确认进程在
-cat /tmp/xvfb.log                # 进程不存在或马上退出时查看原因
+pkill -f "Xvfb :99"
 ```
+
+再按“后台保活(systemd)”使用 `deploy/` 中的服务启动长期实例,不要重复启动 Xvfb。
 
 > 分辨率在启动时固定;改尺寸只能杀掉重启(窗口内容会丢)。
 
@@ -184,23 +186,23 @@ DISPLAY=:99 xdotool getdisplaygeometry     # 1024 768
 
 daemon 只在启动时读 `.env`;改了 `DISPLAY` 要重启 daemon。
 
-### 4. 没有窗口管理器
+### 4. 窗口管理器
 
-Xvfb 只有裸 X 服务器,没有窗口管理器(WM),所以:
+Xvfb 只有裸 X 服务器。没有窗口管理器(WM)时:
 
 - 新窗口不会自动获得键盘焦点;`type` 支持 `window` 参数按标题聚焦
   (`xdotool search --name <标题> windowfocus`);
 - `click` 通常能让多数程序获得焦点,但键盘输入仍建议配合 `window`;
 - `xwininfo -root -tree` 可列出当前窗口及其标题。
 
-需要窗口装饰、最大化等行为时,可在同一 `DISPLAY` 上再起一个轻量 WM(以 openbox 为例):
+临时测试可以不用 WM;需要窗口装饰、最大化等行为时,也可手动启动:
 
 ```sh
-sudo apt install -y openbox
 DISPLAY=:99 openbox &     # 也可改用 fluxbox / i3
 ```
 
-启动她自己的 GUI 程序前,先启动 Xvfb;窗口管理器不是必需品。
+使用 `deploy/` 部署时,`xvfb.service` 会自动拉起 `openbox.service`,Openbox 随虚拟桌面
+停止或重启,不需要再手动执行 `openbox &`。启动她自己的 GUI 程序前,先启动虚拟桌面。
 
 ### 5. 常用操作
 
@@ -219,8 +221,16 @@ x11vnc -display :99 -localhost -nopw
 
 ### 6. 停止与清理
 
+停止临时测试实例:
+
 ```sh
 pkill -f "Xvfb :99"
+```
+
+使用 systemd 部署后不要直接 `pkill`,否则 `Restart=always` 会重新拉起进程。应停止服务:
+
+```sh
+sudo systemctl stop xiaoxue openbox xvfb
 ```
 
 异常退出可能留下 `/tmp/.X99-lock`。确认没有 Xvfb 在跑后删除它,
@@ -241,43 +251,44 @@ pkill -f "Xvfb :99"
 ## 后台保活(systemd)
 
 长期驻留用 systemd:SSH 断开不影响、崩溃自动重启、开机自启、日志可追查。
-`deploy/` 下有两个服务模板:`xvfb.service`(虚拟桌面)和 `xiaoxue.service`(daemon,
-随 xvfb 之后启动)。模板使用上述安装位置 `/usr/bin/node` 与 `/usr/bin/Xvfb`;
+`deploy/` 下有三个服务模板:`xvfb.service`(虚拟桌面)、`openbox.service`(窗口管理器)
+和 `xiaoxue.service`(daemon)。启动 xvfb 会自动拉起 Openbox,daemon 随 xvfb 之后启动。
+模板使用上述安装位置 `/usr/bin/node`、`/usr/bin/Xvfb` 与 `/usr/bin/openbox`;
 运行用户和项目目录不预设,部署时必须按实际环境填写。
 
 ### 1. 安装服务
 
 ```sh
-sudo cp deploy/xvfb.service deploy/xiaoxue.service /etc/systemd/system/
+sudo cp deploy/xvfb.service deploy/openbox.service deploy/xiaoxue.service /etc/systemd/system/
 ```
 
-然后按实际环境编辑 `/etc/systemd/system/` 下的两个文件。`YOUR_USERNAME` 和
+然后按实际环境编辑 `/etc/systemd/system/` 下的三个文件。`YOUR_USERNAME` 和
 `/absolute/path/to/xiaoxue` 是必须替换的占位符,不能直接启动:
 
 | 配置项 | 说明 |
 |---|---|
-| `User` | 将 `YOUR_USERNAME` 改为运行 daemon 的实际用户,建议用普通用户而非 root |
+| `User` | 将 daemon 和 Openbox 服务中的 `YOUR_USERNAME` 改为实际用户,建议用普通用户而非 root |
 | `WorkingDirectory` | 将 `/absolute/path/to/xiaoxue` 改为项目绝对路径;`env.ts` 按相对路径读 `.env`,目录错了会读不到配置 |
-| `ExecStart` | 同步替换其中的项目绝对路径;`command -v node` / `command -v Xvfb` 可检查程序路径,不同时也要替换 |
-| `Xvfb :99` | 显示号必须与 `.env` 的 `DISPLAY` 一致 |
+| `ExecStart` | 同步替换 daemon 的项目绝对路径;`command -v node` / `command -v Xvfb` / `command -v openbox` 可检查程序路径,不同时也要替换 |
+| `Xvfb :99` | 显示号必须与 `.env` 和 `openbox.service` 的 `DISPLAY` 一致 |
 
 ### 2. 启动与开机自启
 
 ```sh
 sudo systemctl daemon-reload
-sudo systemctl enable --now xvfb xiaoxue
+sudo systemctl enable --now xvfb openbox xiaoxue
 ```
 
 ### 3. 日常管理
 
 ```sh
-systemctl status xiaoxue          # 看状态
+systemctl status xvfb openbox xiaoxue  # 看桌面、WM 和 daemon 状态
 journalctl -u xiaoxue -f          # 实时日志
 sudo systemctl restart xiaoxue    # 改了 .env / 代码后重启
 sudo systemctl stop xiaoxue       # 停止(SIGTERM 优雅退出,不会立即强杀)
 ```
 
-`Restart=always` 让进程退出(包括崩溃)后自动拉起:`xiaoxue` 等 5 秒,`xvfb` 等 3 秒。
+`Restart=always` 让进程退出(包括崩溃)后自动拉起:`xiaoxue` 等 5 秒,`xvfb` 和 Openbox 等 3 秒。
 
 临时调试不想装服务时,也可以用 tmux:`tmux new -s xiaoxue` 里跑 `node agent.ts`,
 `Ctrl-b d` 脱离;但崩溃不会自动重启,机器重启后也不会恢复。
