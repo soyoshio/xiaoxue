@@ -1,0 +1,16 @@
+{
+  "name": "pi-xiaoxue",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "agent": "node --env-file-if-exists=.env agent.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.73.0",
+    "@mariozechner/pi-ai": "^0.73.0",
+    "typebox": "^1.1.24"
+  }
+}
